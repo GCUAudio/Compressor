@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="hNvLXX" name="Compressor" projectType="audioplug" jucerVersion="5.4.1">
+<JUCERPROJECT id="hNvLXX" name="Compressor" projectType="audioplug" jucerVersion="5.4.1"
+              pluginFormats="buildVST3" companyName="GCU Audio" pluginVST3Category="Dynamics">
   <MAINGROUP id="OpBixv" name="Compressor">
     <GROUP id="{DDC0E3A8-88A0-B798-8CF7-B61C445D8E0A}" name="Source">
       <FILE id="DnTBvh" name="PluginProcessor.cpp" compile="1" resource="0"

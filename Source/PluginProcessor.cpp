@@ -24,6 +24,21 @@ CompressorAudioProcessor::CompressorAudioProcessor()
                        )
 #endif
 {
+	// Adds the threshold parameter to the AudioProcessor
+	addParameter(threshold = new AudioParameterFloat("threshold",
+		"Threshold (dBFS)", NormalisableRange<float>(-32.0f, -0.1f), -0.1f));
+
+	// Adds the attack parameter to the AudioProcessor
+	addParameter(attack = new AudioParameterFloat("attack",
+		"Attack (s)", 0.0f, 0.5f, 0.02f));
+
+	// Adds the release parameter to the AudioProcessor
+	addParameter(release = new AudioParameterFloat("release",
+		"Release (s)", 0.0f, 1.0f, 0.2f));
+
+	// Adds a parameter for choosing algortihm to the AudioProcessor
+	addParameter(ratio = new AudioParameterInt("ratio",
+		"Ratio", 1, 20, 1));
 }
 
 CompressorAudioProcessor::~CompressorAudioProcessor()
@@ -135,26 +150,58 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
+
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
+	auto alphaA = expf(-log(9.0f) / ( (float)getSampleRate() * attack->get()));
+	auto alphaR = expf(-log(9.0f) / ( (float)getSampleRate() * release->get()));
+
+	auto currentThreshold = threshold->get();
+	auto currentRatio = ratio->get();
+
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
         auto* channelData = buffer.getWritePointer (channel);
 
-        // ..do something to the data...
+
+		for (int i = 0; i < buffer.getNumSamples(); i++) {
+
+			auto x = channelData[i];
+			auto x_uni = fabs(x);
+			auto x_dB = 0.f;
+
+			if (x_uni < 0.000001)
+				x_dB = -120;
+			else
+				x_dB = Decibels::gainToDecibels(x_uni);
+
+			auto gainSC = 0.f;
+
+			if (x_dB >= currentThreshold) {
+
+				gainSC = currentThreshold + ((x_dB - currentThreshold) / (float)currentRatio);
+			}
+			else {
+				gainSC = x_dB;
+			}
+
+			auto gainChange_dB = gainSC - x_dB;
+			auto gainSmooth = 0.0f;
+
+			if (gainChange_dB > gainSmoothPrev) {
+
+				gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev);
+			}
+			else {
+
+				gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev);
+			}
+
+			auto lin_A = Decibels::decibelsToGain(gainSmooth);
+			channelData[i] = lin_A * x;
+			gainSmoothPrev = gainSmooth;
+		}
     }
 }
 
@@ -166,7 +213,7 @@ bool CompressorAudioProcessor::hasEditor() const
 
 AudioProcessorEditor* CompressorAudioProcessor::createEditor()
 {
-    return new CompressorAudioProcessorEditor (*this);
+    return new GenericAudioProcessorEditor(this);
 }
 
 //==============================================================================

@@ -56,6 +56,14 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+
+	AudioParameterFloat* threshold;
+	AudioParameterFloat* attack;
+	AudioParameterFloat* release;
+	AudioParameterInt* ratio;
+
+	float gainSmoothPrev = 0.f;
+
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CompressorAudioProcessor)
 };
