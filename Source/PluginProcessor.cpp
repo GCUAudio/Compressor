@@ -156,11 +156,11 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
 	float alphaA = 0.0f;
 	float alphaR = 0.0f;
 
-	// Only calculate if control has been moved
+	// Only calculate if attack GUI control has been moved
 	if(currentAttack != attack->get())
 		alphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(attack->get())));
 
-	// Only calculate if control has been moved
+	// Only calculate if release GUI control has been moved
 	if (currentRelease != release->get())
 		alphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(release->get())));
 
@@ -181,10 +181,13 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
 				y_dB = -120.0f; 
 				
 			float gainSC = 0.f;
+			float kneeWidth = 4.0f;
 
-			// Implement static characteristics
-			if (y_dB > currentThreshold) 
+			// Implement static characteristics (with knee)
+			if (y_dB > (currentThreshold + (kneeWidth / 2)))
 				gainSC = currentThreshold + ((y_dB - currentThreshold) / currentRatio);
+			else if (y_dB > (currentThreshold - (kneeWidth / 2)))
+				gainSC = y_dB + powf((1.0f / currentRatio - 1.0f) * (y_dB - currentThreshold + kneeWidth / 2.0f), 2.0f) / (2.0f * kneeWidth);
 			else 
 				gainSC = y_dB;
 
@@ -201,6 +204,10 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
 			float lin_A = Decibels::decibelsToGain(gainSmooth);
 			float out = lin_A * in;
 			channelData[i] = out;
+
+			// Uncomment to record gain reduction coefficient for MATLAB
+			/*if (channel == 1)
+				channelData[i] = lin_A;*/
 
 			// update for next cycle as used in next sample of the loop
 			y_prev[channel] = out;
