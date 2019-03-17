@@ -62,7 +62,7 @@ private:
 	AudioParameterFloat* release;
 	AudioParameterInt* ratio;
 
-	float gainSmoothPrev = 0.f;
+	float gainSmoothPrev[2] = { 0.f, 0.f };
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CompressorAudioProcessor)

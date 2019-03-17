@@ -164,23 +164,19 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
     {
         auto* channelData = buffer.getWritePointer (channel);
 
-
 		for (int i = 0; i < buffer.getNumSamples(); i++) {
 
-			auto x = channelData[i];
-			auto x_uni = fabs(x);
-			auto x_dB = 0.f;
+			auto in = channelData[i];
+			auto x_uni = fabs(in);
+			auto x_dB = Decibels::gainToDecibels(x_uni);
 
-			if (x_uni < 0.000001)
-				x_dB = -120;
-			else
-				x_dB = Decibels::gainToDecibels(x_uni);
+			if (x_dB < -120.0f)
+				x_dB = -120.0f; 
+				
+			float gainSC = 0.f;
 
-			auto gainSC = 0.f;
-
-			if (x_dB >= currentThreshold) {
-
-				gainSC = currentThreshold + ((x_dB - currentThreshold) / (float)currentRatio);
+			if (x_dB > currentThreshold) {
+				gainSC = currentThreshold + ((x_dB - currentThreshold) / currentRatio);
 			}
 			else {
 				gainSC = x_dB;
@@ -189,18 +185,18 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
 			auto gainChange_dB = gainSC - x_dB;
 			auto gainSmooth = 0.0f;
 
-			if (gainChange_dB > gainSmoothPrev) {
+			if (gainChange_dB < gainSmoothPrev[channel]) {
 
-				gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev);
+				gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev[channel]);
 			}
 			else {
 
-				gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev);
+				gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev[channel]);
 			}
 
 			auto lin_A = Decibels::decibelsToGain(gainSmooth);
-			channelData[i] = lin_A * x;
-			gainSmoothPrev = gainSmooth;
+			channelData[i] = lin_A * in;
+			gainSmoothPrev[channel] = gainSmooth;
 		}
     }
 }
