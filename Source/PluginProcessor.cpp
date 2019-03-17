@@ -30,11 +30,11 @@ CompressorAudioProcessor::CompressorAudioProcessor()
 
 	// Adds the attack parameter to the AudioProcessor
 	addParameter(attack = new AudioParameterFloat("attack",
-		"Attack (ms)", 0.0f, 0.5f, 0.02f));
+		"Attack (ms)", NormalisableRange<float>(0.0f, 500.0f), 20.0f));
 
 	// Adds the release parameter to the AudioProcessor
 	addParameter(release = new AudioParameterFloat("release",
-		"Release (ms)", 0.0f, 1.0f, 0.2f));
+		"Release (ms)", NormalisableRange<float>(0.0f, 1000.f), 200.0f));
 
 	// Adds a parameter for choosing algortihm to the AudioProcessor
 	addParameter(ratio = new AudioParameterInt("ratio",
@@ -150,51 +150,59 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-	auto alphaA = expf(-log(9.0f) / ( (float)getSampleRate() * attack->get()));
-	auto alphaR = expf(-log(9.0f) / ( (float)getSampleRate() * release->get()));
+	float alphaA = 0.0f;
+	float alphaR = 0.0f;
 
-	auto currentThreshold = threshold->get();
-	auto currentRatio = ratio->get();
+	// Only calculate if control has been moved
+	if(currentAttack != attack->get())
+		alphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(attack->get())));
+
+	// Only calculate if control has been moved
+	if (currentRelease != release->get())
+		alphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(release->get())));
 
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
         auto* channelData = buffer.getWritePointer (channel);
+		auto currentThreshold = threshold->get();
+		auto currentRatio = ratio->get();
 
-		for (int i = 0; i < buffer.getNumSamples(); i++) {
+		for (int i = 0; i < buffer.getNumSamples(); ++i) {
 
 			auto in = channelData[i];
-			auto y_uni = fabs(y_prev[channel]);
-			auto y_dB = Decibels::gainToDecibels(y_uni);
+			float y_uni = fabs(y_prev[channel]); // change to unipolar signal
+			float y_dB = Decibels::gainToDecibels(y_uni); // convert to dB
 
+			// Ensure no negative infinity values
 			if (y_dB < -120.0f)
 				y_dB = -120.0f; 
 				
 			float gainSC = 0.f;
 
-			if (y_dB > currentThreshold) {
+			// Implement static characteristics
+			if (y_dB > currentThreshold) 
 				gainSC = currentThreshold + ((y_dB - currentThreshold) / currentRatio);
-			}
-			else {
+			else 
 				gainSC = y_dB;
-			}
 
-			auto gainChange_dB = gainSC - y_dB;
-			auto gainSmooth = 0.0f;
+			float gainChange_dB = gainSC - y_dB;
+			float gainSmooth = 0.0f;
 
-			if (gainChange_dB < gainSmoothPrev[channel]) {
+			// Smooth gain changed for attack or release
+			if (gainChange_dB < gainSmoothPrev[channel]) 
 				gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev[channel]);
-			}
-			else {
+			else 
 				gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev[channel]);
-			}
 
-			auto lin_A = Decibels::decibelsToGain(gainSmooth);
-			auto out = lin_A * in;
+			// Apply linear amplitude to input sample
+			float lin_A = Decibels::decibelsToGain(gainSmooth);
+			float out = lin_A * in;
 			channelData[i] = out;
+
+			// update for next cycle as used in next sample of the loop
 			y_prev[channel] = out;
 			gainSmoothPrev[channel] = gainSmooth;
 		}
@@ -215,15 +223,20 @@ AudioProcessorEditor* CompressorAudioProcessor::createEditor()
 //==============================================================================
 void CompressorAudioProcessor::getStateInformation (MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
+	MemoryOutputStream stream(destData, true);
+	stream.writeFloat(*threshold);
+	stream.writeFloat(*attack);
+	stream.writeFloat(*release);
+	stream.writeInt(*ratio);
 }
 
 void CompressorAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
+	MemoryInputStream stream(data, static_cast<size_t> (sizeInBytes), false);
+	threshold->setValueNotifyingHost(threshold->getNormalisableRange().convertTo0to1(stream.readFloat()));
+	attack->setValueNotifyingHost(attack->getNormalisableRange().convertTo0to1(stream.readFloat()));
+	release->setValueNotifyingHost(release->getNormalisableRange().convertTo0to1(stream.readFloat()));
+	ratio->setValueNotifyingHost(ratio->getNormalisableRange().convertTo0to1(stream.readInt()));
 }
 
 //==============================================================================
@@ -231,4 +244,8 @@ void CompressorAudioProcessor::setStateInformation (const void* data, int sizeIn
 AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new CompressorAudioProcessor();
+}
+
+float CompressorAudioProcessor::mstosec(float ms) {
+	return ms * 0.001;
 }
