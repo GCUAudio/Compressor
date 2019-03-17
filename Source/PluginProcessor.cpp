@@ -30,11 +30,11 @@ CompressorAudioProcessor::CompressorAudioProcessor()
 
 	// Adds the attack parameter to the AudioProcessor
 	addParameter(attack = new AudioParameterFloat("attack",
-		"Attack (s)", 0.0f, 0.5f, 0.02f));
+		"Attack (ms)", 0.0f, 0.5f, 0.02f));
 
 	// Adds the release parameter to the AudioProcessor
 	addParameter(release = new AudioParameterFloat("release",
-		"Release (s)", 0.0f, 1.0f, 0.2f));
+		"Release (ms)", 0.0f, 1.0f, 0.2f));
 
 	// Adds a parameter for choosing algortihm to the AudioProcessor
 	addParameter(ratio = new AudioParameterInt("ratio",
@@ -167,35 +167,35 @@ void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuf
 		for (int i = 0; i < buffer.getNumSamples(); i++) {
 
 			auto in = channelData[i];
-			auto x_uni = fabs(in);
-			auto x_dB = Decibels::gainToDecibels(x_uni);
+			auto y_uni = fabs(y_prev[channel]);
+			auto y_dB = Decibels::gainToDecibels(y_uni);
 
-			if (x_dB < -120.0f)
-				x_dB = -120.0f; 
+			if (y_dB < -120.0f)
+				y_dB = -120.0f; 
 				
 			float gainSC = 0.f;
 
-			if (x_dB > currentThreshold) {
-				gainSC = currentThreshold + ((x_dB - currentThreshold) / currentRatio);
+			if (y_dB > currentThreshold) {
+				gainSC = currentThreshold + ((y_dB - currentThreshold) / currentRatio);
 			}
 			else {
-				gainSC = x_dB;
+				gainSC = y_dB;
 			}
 
-			auto gainChange_dB = gainSC - x_dB;
+			auto gainChange_dB = gainSC - y_dB;
 			auto gainSmooth = 0.0f;
 
 			if (gainChange_dB < gainSmoothPrev[channel]) {
-
 				gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev[channel]);
 			}
 			else {
-
 				gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev[channel]);
 			}
 
 			auto lin_A = Decibels::decibelsToGain(gainSmooth);
-			channelData[i] = lin_A * in;
+			auto out = lin_A * in;
+			channelData[i] = out;
+			y_prev[channel] = out;
 			gainSmoothPrev[channel] = gainSmooth;
 		}
     }
