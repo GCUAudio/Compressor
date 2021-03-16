@@ -1,9 +1,7 @@
 /*
   ==============================================================================
 
-    This file was auto-generated!
-
-    It contains the basic framework code for a JUCE plugin processor.
+    This file contains the basic framework code for a JUCE plugin processor.
 
   ==============================================================================
 */
@@ -17,28 +15,21 @@ CompressorAudioProcessor::CompressorAudioProcessor()
      : AudioProcessor (BusesProperties()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  AudioChannelSet::stereo(), true)
+                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                       #endif
-                       .withOutput ("Output", AudioChannelSet::stereo(), true)
+                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
-                       )
+                       ), treeState(*this, nullptr, juce::Identifier("PARAMETERS"),
+                           { std::make_unique<juce::AudioParameterFloat>("threshold", "Threshold", -32.f, 0.f, 0.f),
+                             std::make_unique<juce::AudioParameterFloat>("ratio", "Ratio", 0.f, 20.0f, 1.0f),
+                             std::make_unique<juce::AudioParameterFloat>("attack", "Attack", 0.f, 500.f, 20.0f),
+                             std::make_unique<juce::AudioParameterFloat>("release", "Release", 0.f, 500.f, 20.f) })
 #endif
 {
-	// Adds the threshold parameter to the AudioProcessor
-	addParameter(threshold = new AudioParameterFloat("threshold",
-		"Threshold (dBFS)", NormalisableRange<float>(-32.0f, -0.1f), -0.1f));
-
-	// Adds the attack parameter to the AudioProcessor
-	addParameter(attack = new AudioParameterFloat("attack",
-		"Attack (ms)", NormalisableRange<float>(0.0f, 500.0f), 20.0f));
-
-	// Adds the release parameter to the AudioProcessor
-	addParameter(release = new AudioParameterFloat("release",
-		"Release (ms)", NormalisableRange<float>(0.0f, 1000.f), 200.0f));
-
-	// Adds a parameter for choosing algortihm to the AudioProcessor
-	addParameter(ratio = new AudioParameterInt("ratio",
-		"Ratio", 1, 20, 1));
+    treeState.addParameterListener("threshold", this);
+    treeState.addParameterListener("ratio", this);
+    treeState.addParameterListener("attack", this);
+    treeState.addParameterListener("release", this);
 }
 
 CompressorAudioProcessor::~CompressorAudioProcessor()
@@ -46,7 +37,7 @@ CompressorAudioProcessor::~CompressorAudioProcessor()
 }
 
 //==============================================================================
-const String CompressorAudioProcessor::getName() const
+const juce::String CompressorAudioProcessor::getName() const
 {
     return JucePlugin_Name;
 }
@@ -98,12 +89,12 @@ void CompressorAudioProcessor::setCurrentProgram (int index)
 {
 }
 
-const String CompressorAudioProcessor::getProgramName (int index)
+const juce::String CompressorAudioProcessor::getProgramName (int index)
 {
     return {};
 }
 
-void CompressorAudioProcessor::changeProgramName (int index, const String& newName)
+void CompressorAudioProcessor::changeProgramName (int index, const juce::String& newName)
 {
 }
 
@@ -124,13 +115,13 @@ void CompressorAudioProcessor::releaseResources()
 bool CompressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
   #if JucePlugin_IsMidiEffect
-    ignoreUnused (layouts);
+    juce::ignoreUnused (layouts);
     return true;
   #else
     // This is the place where you check if the layout is supported.
     // In this template code we only support mono or stereo.
-    if (layouts.getMainOutputChannelSet() != AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != AudioChannelSet::stereo())
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
     // This checks if the input layout matches the output layout
@@ -144,75 +135,52 @@ bool CompressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 }
 #endif
 
-void CompressorAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer& midiMessages)
+void CompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
-    ScopedNoDenormals noDenormals;
+    juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-	float alphaA = 0.0f;
-	float alphaR = 0.0f;
-
-	// Only calculate if attack GUI control has been moved
-	if(currentAttack != attack->get())
-		alphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(attack->get())));
-
-	// Only calculate if release GUI control has been moved
-	if (currentRelease != release->get())
-		alphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(release->get())));
+    float alphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(mAttack)));
+    float alphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(mRelease)));
 
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
         auto* channelData = buffer.getWritePointer (channel);
-		auto currentThreshold = threshold->get();
-		auto currentRatio = ratio->get();
 
-		for (int i = 0; i < buffer.getNumSamples(); ++i) {
+        for (int i = 0; i < buffer.getNumSamples(); ++i) {
 
-			auto in = channelData[i];
-			float y_uni = fabs(y_prev[channel]); // change to unipolar signal
-			float y_dB = Decibels::gainToDecibels(y_uni); // convert to dB
+            auto in = channelData[i];
+            float x_uni = fabs(in); 
+            float x_dB = juce::Decibels::gainToDecibels(x_uni); 
 
-			// Ensure no negative infinity values
-			if (y_dB < -120.0f)
-				y_dB = -120.0f; 
-				
-			float gainSC = 0.f;
-			float kneeWidth = 4.0f;
+            float gainSC = 0.f;
 
-			// Implement static characteristics (with knee)
-			if (y_dB > (currentThreshold + (kneeWidth / 2)))
-				gainSC = currentThreshold + ((y_dB - currentThreshold) / currentRatio);
-			else if (y_dB > (currentThreshold - (kneeWidth / 2)))
-				gainSC = y_dB + powf((1.0f / currentRatio - 1.0f) * (y_dB - currentThreshold + kneeWidth / 2.0f), 2.0f) / (2.0f * kneeWidth);
-			else 
-				gainSC = y_dB;
+            // Implement static characteristics
+            if (x_dB > mThreshold)
+                gainSC = mThreshold + ((x_dB - mThreshold) / mRatio);
+            else
+                gainSC = x_dB;
 
-			float gainChange_dB = gainSC - y_dB;
-			float gainSmooth = 0.0f;
+            float gainChange_dB = gainSC - x_dB;
+            float gainSmooth = 0.0f;
 
-			// Smooth gain changed for attack or release
-			if (gainChange_dB < gainSmoothPrev[channel]) 
-				gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev[channel]);
-			else 
-				gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev[channel]);
+            // Smooth gain changed for attack or release. Without this would be a clipping distortion
+            if (gainChange_dB < gainSmoothPrev[channel])
+                gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev[channel]);
+            else
+                gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev[channel]);
 
-			// Apply linear amplitude to input sample
-			float lin_A = Decibels::decibelsToGain(gainSmooth);
-			float out = lin_A * in;
-			channelData[i] = out;
+            // Apply linear amplitude to input sample
+            float lin_A = juce::Decibels::decibelsToGain(gainSmooth);
+            float out = lin_A * in;
+            channelData[i] = out;
 
-			// Uncomment to record gain reduction coefficient for MATLAB
-			/*if (channel == 1)
-				channelData[i] = lin_A;*/
-
-			// update for next cycle as used in next sample of the loop
-			y_prev[channel] = out;
-			gainSmoothPrev[channel] = gainSmooth;
-		}
+            gainSmoothPrev[channel] = gainSmooth;
+        }
     }
 }
 
@@ -222,37 +190,58 @@ bool CompressorAudioProcessor::hasEditor() const
     return true; // (change this to false if you choose to not supply an editor)
 }
 
-AudioProcessorEditor* CompressorAudioProcessor::createEditor()
+juce::AudioProcessorEditor* CompressorAudioProcessor::createEditor()
 {
-    return new GenericAudioProcessorEditor(this);
+    return new CompressorAudioProcessorEditor (*this, treeState);
 }
 
 //==============================================================================
-void CompressorAudioProcessor::getStateInformation (MemoryBlock& destData)
+void CompressorAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-	MemoryOutputStream stream(destData, true);
-	stream.writeFloat(*threshold);
-	stream.writeFloat(*attack);
-	stream.writeFloat(*release);
-	stream.writeInt(*ratio);
+    // You should use this method to store your parameters in the memory block.
+    // You could do that either as raw data, or use the XML or ValueTree classes
+    // as intermediaries to make it easy to save and load complex data.
 }
 
 void CompressorAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-	MemoryInputStream stream(data, static_cast<size_t> (sizeInBytes), false);
-	threshold->setValueNotifyingHost(threshold->getNormalisableRange().convertTo0to1(stream.readFloat()));
-	attack->setValueNotifyingHost(attack->getNormalisableRange().convertTo0to1(stream.readFloat()));
-	release->setValueNotifyingHost(release->getNormalisableRange().convertTo0to1(stream.readFloat()));
-	ratio->setValueNotifyingHost(ratio->getNormalisableRange().convertTo0to1(stream.readInt()));
+    // You should use this method to restore your parameters from this memory block,
+    // whose contents will have been created by the getStateInformation() call.
 }
 
 //==============================================================================
 // This creates new instances of the plugin..
-AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new CompressorAudioProcessor();
 }
 
-float CompressorAudioProcessor::mstosec(float ms) {
-	return ms * 0.001;
+// Function called when parameter is changed
+void CompressorAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    if (parameterID == "threshold")
+    {
+        mThreshold = newValue;
+    }
+
+    else if (parameterID == "ratio")
+    {
+        mRatio = newValue;
+    }
+
+    else if (parameterID == "attack")
+    {
+        mAttack = newValue;
+    }
+
+    else if (parameterID == "release")
+    {
+        mRelease = newValue;
+    }
+}
+
+// Time conversion function
+float CompressorAudioProcessor::mstosec(float ms) 
+{
+    return ms * 0.001;
 }
