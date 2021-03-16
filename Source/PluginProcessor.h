@@ -67,7 +67,6 @@ private:
     float mRelease;
 
     float gainSmoothPrev[2] = { 0.f, 0.f };
-    float y_prev[2] = { 0.f, 0.f };
     float currentAttack = 0.0f;
     float currentRelease = 0.0f;
 
