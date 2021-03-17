@@ -121,7 +121,7 @@ bool CompressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
     // This is the place where you check if the layout is supported.
     // In this template code we only support mono or stereo.
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::())
         return false;
 
     // This checks if the input layout matches the output layout
@@ -144,14 +144,14 @@ void CompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    float alphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(mAttack)));
-    float alphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(mRelease)));
+
 
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
         auto* channelData = buffer.getWritePointer (channel);
 
-        for (int i = 0; i < buffer.getNumSamples(); ++i) {
+        for (int i = 0; i < buffer.getNumSamples(); ++i) 
+        {
 
             auto in = channelData[i];
             float x_uni = fabs(in); 
@@ -159,7 +159,7 @@ void CompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
             float gainSC = 0.f;
 
-            // Implement static characteristics
+            // Implement so called static characteristics (to determine a gain value)
             if (x_dB > mThreshold)
                 gainSC = mThreshold + ((x_dB - mThreshold) / mRatio);
             else
@@ -170,9 +170,9 @@ void CompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
             // Smooth gain changed for attack or release. Without this would be a clipping distortion
             if (gainChange_dB < gainSmoothPrev[channel])
-                gainSmooth = ((1.0f - alphaA) * gainChange_dB) + (alphaA * gainSmoothPrev[channel]);
+                gainSmooth = ((1.0f - mAlphaA) * gainChange_dB) + (mAlphaA * gainSmoothPrev[channel]);
             else
-                gainSmooth = ((1.0f - alphaR) * gainChange_dB) + (alphaR * gainSmoothPrev[channel]);
+                gainSmooth = ((1.0f - mAlphaR) * gainChange_dB) + (mAlphaR * gainSmoothPrev[channel]);
 
             // Apply linear amplitude to input sample
             float lin_A = juce::Decibels::decibelsToGain(gainSmooth);
@@ -235,11 +235,14 @@ void CompressorAudioProcessor::parameterChanged(const juce::String& parameterID,
     else if (parameterID == "attack")
     {
         mAttack = newValue;
+        mAlphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(mAttack))); // Could move to parameterchanged
     }
 
     else if (parameterID == "release")
     {
         mRelease = newValue;
+        mAlphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(mRelease)));
+
     }
 }
 
