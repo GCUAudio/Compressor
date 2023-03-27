@@ -60,6 +60,8 @@ public:
 private:
 
     juce::AudioProcessorValueTreeState treeState;
+    
+    float msToSeconds(float ms);
 
     float mThreshold;
     float mRatio;

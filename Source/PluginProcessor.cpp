@@ -121,7 +121,7 @@ bool CompressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
     // This is the place where you check if the layout is supported.
     // In this template code we only support mono or stereo.
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::())
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
     // This checks if the input layout matches the output layout
@@ -144,8 +144,6 @@ void CompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-
-
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
         auto* channelData = buffer.getWritePointer (channel);
@@ -154,8 +152,8 @@ void CompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         {
 
             auto in = channelData[i];
-            float x_uni = fabs(in); 
-            float x_dB = juce::Decibels::gainToDecibels(x_uni); 
+            float x_uni = fabs(in);
+            float x_dB = juce::Decibels::gainToDecibels(x_uni);
 
             float gainSC = 0.f;
 
@@ -235,19 +233,19 @@ void CompressorAudioProcessor::parameterChanged(const juce::String& parameterID,
     else if (parameterID == "attack")
     {
         mAttack = newValue;
-        mAlphaA = expf(-log(9.0f) / (getSampleRate() * mstosec(mAttack))); // Could move to parameterchanged
+        mAlphaA = expf(-log(9.0f) / (getSampleRate() * msToSeconds(mAttack)));
     }
 
     else if (parameterID == "release")
     {
         mRelease = newValue;
-        mAlphaR = expf(-log(9.0f) / (getSampleRate() * mstosec(mRelease)));
+        mAlphaR = expf(-log(9.0f) / (getSampleRate() * msToSeconds(mAttack)));
 
     }
 }
 
-// Time conversion function
-float CompressorAudioProcessor::mstosec(float ms) 
+float CompressorAudioProcessor::msToSeconds(float ms)
 {
     return ms * 0.001;
 }
+
